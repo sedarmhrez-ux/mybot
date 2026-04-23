@@ -2,6 +2,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import sqlite3, time, requests
 
+# ================= CONFIG =================
 TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
 ADMIN_ID = 5492649402
 BOT_USERNAME = "hassan2003probot"
@@ -24,7 +25,7 @@ DB = "data.db"
 conn = sqlite3.connect(DB, check_same_thread=False)
 cur = conn.cursor()
 
-# ======== DATABASE TABLES ========
+# ================= DATABASE =================
 cur.execute("""CREATE TABLE IF NOT EXISTS users(
 user_id INTEGER PRIMARY KEY,
 balance INTEGER,
@@ -37,34 +38,19 @@ ads_count INTEGER DEFAULT 0,
 daily_bonus_claimed INTEGER DEFAULT 0,
 ref_bonus_claimed INTEGER DEFAULT 0
 )""")
-cur.execute("""CREATE TABLE IF NOT EXISTS ads(
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-link TEXT
-)""")
-cur.execute("""CREATE TABLE IF NOT EXISTS withdraw(
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-user_id INTEGER,
-amount INTEGER,
-method TEXT,
-info TEXT,
-time INTEGER
-)""")
-cur.execute("""CREATE TABLE IF NOT EXISTS logs(
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-user_id INTEGER,
-amount INTEGER,
-time INTEGER
-)""")
+cur.execute("""CREATE TABLE IF NOT EXISTS ads(id INTEGER PRIMARY KEY AUTOINCREMENT,link TEXT)""")
+cur.execute("""CREATE TABLE IF NOT EXISTS withdraw(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,amount INTEGER,method TEXT,info TEXT,time INTEGER)""")
+cur.execute("""CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,amount INTEGER,time INTEGER)""")
 conn.commit()
 
-# ======== HELPERS ========
+# ================= HELPERS =================
 def now(): return int(time.time())
 
 def add_user(uid, ref=None):
     cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
     if not cur.fetchone():
         cur.execute("INSERT INTO users(user_id,balance,refs,ref_by,banned,last_ad,joined) VALUES(?,?,?,?,?,?,?)",
-                    (uid, WELCOME_BONUS, 0, ref, 0, 0, now()))
+                    (uid, WELCOME_BONUS,0,ref,0,0,now()))
         conn.commit()
         if ref and ref != uid:
             cur.execute("UPDATE users SET balance=balance+?, refs=refs+1, ref_bonus_claimed=1 WHERE user_id=?",(REF_BONUS, ref))
@@ -95,7 +81,7 @@ def check_vpn(ip):
     except:
         return False
 
-# ======== MENUS ========
+# ================= MENUS =================
 def menu(uid):
     kb = [
         [InlineKeyboardButton("💰 أرباحي", callback_data="bal")],
@@ -119,7 +105,7 @@ def admin_menu():
         [InlineKeyboardButton("↩️ السابق", callback_data="home")]
     ])
 
-# ======== START ========
+# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
     ref = int(context.args[0]) if context.args else None
@@ -141,7 +127,7 @@ f"""🎉 أهلاً وسهلاً بالمشترك الجديد!
 👇 اختر من القائمة للبدء
 """, reply_markup=menu(uid))
 
-# ======== BUTTONS ========
+# ================= BUTTONS =================
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     uid = q.from_user.id
@@ -161,8 +147,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if count >= 40:
             await q.answer("❌ وصلت الحد اليومي للإعلانات", show_alert=True)
             return
-        ip = uid
-        if check_vpn(str(ip)):
+        if check_vpn(str(uid)):
             cur.execute("UPDATE users SET banned=1 WHERE user_id=?", (uid,))
             conn.commit()
             await q.edit_message_text("🚫 تم حظرك 15 دقيقة بسبب VPN")
@@ -208,3 +193,10 @@ f"""📊 إحصائيات البوت
 👤 المستخدمين: {total_users}
 💰 الأرباح الكلية: {total_balance}
 🚫 المحظورين: {banned}""", reply_markup=admin_menu())
+
+# ================= RUN =================
+app = ApplicationBuilder().token(TOKEN).build()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CallbackQueryHandler(buttons))
+print("BOT RUNNING...")
+app.run_polling()
