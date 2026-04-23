@@ -1,8 +1,8 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-import sqlite3, time, threading, shutil
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+import sqlite3, time, os
 
-TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
+TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"  #
 ADMIN_ID = 5492649402
 ADMIN_USERNAME = "@hassanhasan12"
 BOT_USERNAME = "hassan2003probot"
@@ -10,36 +10,63 @@ BOT_USERNAME = "hassan2003probot"
 WELCOME_BONUS = 2900
 REF_BONUS = 1000
 
-DB_PATH = "/storage/emulated/0/mybot/data.db"
+# ✅ تعديل مهم: مسار قاعدة البيانات (يشتغل على Railway)
+DB_PATH = "data.db"
+
+# إنشاء الملف إذا غير موجود
+if not os.path.exists(DB_PATH):
+    open(DB_PATH, 'w').close()
 
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 cur = conn.cursor()
 
 # ====== إنشاء الجداول ======
-cur.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, balance INTEGER, ref INTEGER, refs INTEGER DEFAULT 0, banned INTEGER DEFAULT 0)")
-cur.execute("CREATE TABLE IF NOT EXISTS withdraw (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,amount INTEGER,method TEXT,info TEXT)")
+cur.execute("""
+CREATE TABLE IF NOT EXISTS users (
+user_id INTEGER PRIMARY KEY,
+balance INTEGER,
+ref INTEGER,
+refs INTEGER DEFAULT 0,
+banned INTEGER DEFAULT 0
+)
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS withdraw (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+user_id INTEGER,
+amount INTEGER,
+method TEXT,
+info TEXT
+)
+""")
+
 conn.commit()
 
+# ====== وظائف ======
 def add_user(uid, ref=None):
     cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
     if not cur.fetchone():
         cur.execute("INSERT INTO users VALUES (?,?,?,?,?)", (uid, WELCOME_BONUS, ref, 0, 0))
         conn.commit()
-        if ref:
+        if ref and ref != uid:
             cur.execute("UPDATE users SET balance=balance+?, refs=refs+1 WHERE user_id=?", (REF_BONUS, ref))
             conn.commit()
 
 def get_balance(uid):
     cur.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
-    return cur.fetchone()[0]
+    row = cur.fetchone()
+    return row[0] if row else 0
 
 def get_refs(uid):
     cur.execute("SELECT refs FROM users WHERE user_id=?", (uid,))
-    return cur.fetchone()[0]
+    row = cur.fetchone()
+    return row[0] if row else 0
 
 def is_banned(uid):
     cur.execute("SELECT banned FROM users WHERE user_id=?", (uid,))
-    return cur.fetchone()[0] == 1
+    row = cur.fetchone()
+    return row[0] == 1 if row else False
 
 # ====== الواجهة ======
 def menu(uid):
@@ -69,7 +96,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = f"""
-🎉 مبروك تم إضافة بونص {WELCOME_BONUS} ل.س
+🎉 مبروك ✅ تم إضافة بونص {WELCOME_BONUS} ل.س
 
 📢 شاهد الإعلانات
 👥 شارك رابطك
@@ -95,15 +122,18 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(
             "🔥 كل إعلان تربح 120 ل.س 💸\n\nاضغط وشاهد واربح فوراً!",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("▶️ مشاهدة إعلان", callback_data="watch")]
+                [InlineKeyboardButton("▶️ مشاهدة إعلان", callback_data="watch")],
+                [InlineKeyboardButton("⬅ رجوع", callback_data="home")]
             ])
         )
 
     elif q.data == "watch":
-        # محاكاة
-        await q.edit_message_text("⏳ انتظر 30 ثانية ثم اضغط تحقق", reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ تحقق", callback_data="check")]
-        ]))
+        await q.edit_message_text(
+            "⏳ انتظر 30 ثانية ثم اضغط تحقق",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ تحقق", callback_data="check")]
+            ])
+        )
 
     elif q.data == "check":
         cur.execute("UPDATE users SET balance=balance+120 WHERE user_id=?", (uid,))
@@ -135,7 +165,14 @@ withdraw المبلغ الطريقة الرقم
     elif q.data == "admin" and uid == ADMIN_ID:
         cur.execute("SELECT COUNT(*) FROM users")
         users = cur.fetchone()[0]
-        await q.edit_message_text(f"👤 المستخدمين: {users}", reply_markup=back())
+
+        cur.execute("SELECT SUM(balance) FROM users")
+        total = cur.fetchone()[0] or 0
+
+        await q.edit_message_text(
+            f"⚙️ لوحة الإدارة\n\n👤 المستخدمين: {users}\n💰 إجمالي الأرباح: {total}",
+            reply_markup=back()
+        )
 
 # ====== السحب ======
 async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -154,7 +191,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ رصيدك لا يكفي")
         return
 
-    # تحقق من الحد الأدنى
     if method.lower() == "syriatel" and amount < 77000:
         await update.message.reply_text("❌ الحد الأدنى 77000")
         return
@@ -168,7 +204,6 @@ async def withdraw(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 (uid, amount, method, info))
     conn.commit()
 
-    # إرسال لك
     await context.bot.send_message(
         ADMIN_ID,
         f"💸 طلب سحب جديد\n\nID: {uid}\nالمبلغ: {amount}\nالطريقة: {method}\nالبيانات: {info}"
