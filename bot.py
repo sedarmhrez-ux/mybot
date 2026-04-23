@@ -2,7 +2,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import sqlite3, os, time, requests
 
-# ================= CONFIG =================
 TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
 ADMIN_ID = 5492649402
 BOT_USERNAME = "hassan2003probot"
@@ -11,7 +10,7 @@ API_LIST = [
     "4693acfd000d76e596cb23645e01b0956f533f0f",
     "da29dbb527117f6da44b53b01d30042642f09339",
     "26b0905f8960ee10ce7b442717c1ce85e062113e",
-    "2f32cae87ec3d4f9306f37337a538969141c14ca"  # موقع رابع
+    "2f32cae87ec3d4f9306f37337a538969141c14ca"
 ]
 
 WELCOME_BONUS = 2400
@@ -67,7 +66,6 @@ def add_user(uid, ref=None):
         cur.execute("INSERT INTO users(user_id,balance,refs,ref_by,banned,last_ad,joined) VALUES(?,?,?,?,?,?,?)",
                     (uid, WELCOME_BONUS, 0, ref, 0, 0, now()))
         conn.commit()
-        # بونص الاحالة
         if ref and ref != uid:
             cur.execute("UPDATE users SET balance=balance+?, refs=refs+1, ref_bonus_claimed=1 WHERE user_id=?",(REF_BONUS, ref))
             conn.commit()
@@ -97,6 +95,7 @@ def check_vpn(ip):
     except:
         return False
 
+# ================== MENUS ==================
 def menu(uid):
     kb = [
         [InlineKeyboardButton("💰 أرباحي", callback_data="bal")],
@@ -111,6 +110,14 @@ def menu(uid):
 
 def back_btn():
     return InlineKeyboardMarkup([[InlineKeyboardButton("↩️ السابق", callback_data="home")]])
+
+def admin_menu():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 إحصائيات", callback_data="stats")],
+        [InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="ads_admin")],
+        [InlineKeyboardButton("🚫 المستخدمين المحظورين", callback_data="ban_menu")],
+        [InlineKeyboardButton("↩️ السابق", callback_data="home")]
+    ])
 
 # ================== START ==================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -149,22 +156,19 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(f"💰 رصيدك: {bal}", reply_markup=back_btn())
 
     elif q.data == "ads":
-        # حد يومي وسبام
         cur.execute("SELECT ads_count FROM users WHERE user_id=?", (uid,))
         count = cur.fetchone()[0]
         if count >= 40:
             await q.answer("❌ وصلت الحد اليومي للإعلانات", show_alert=True)
             return
-
         ip = uid
         if check_vpn(str(ip)):
             cur.execute("UPDATE users SET banned=1 WHERE user_id=?", (uid,))
             conn.commit()
             await q.edit_message_text("🚫 تم حظرك 15 دقيقة بسبب VPN")
             return
-
         link = generate_link()
-        cur.execute("UPDATE users SET last_ad=?, ads_count=ads_count+1 WHERE user_id=?", (now(), uid))
+        cur.execute("UPDATE users SET last_ad=?, ads_count=ads_count+1 WHERE user_id=?", (time.time(), uid))
         conn.commit()
         await q.edit_message_text(
 f"""🔥 كل إعلان يضيف {AD_REWARD} ل.س
@@ -187,6 +191,14 @@ f"""🔥 كل إعلان يضيف {AD_REWARD} ل.س
     elif q.data == "ref":
         link = f"https://t.me/{BOT_USERNAME}?start={uid}"
         await q.edit_message_text(f"🔗 رابطك الشخصي:\n{link}", reply_markup=back_btn())
+
+    elif q.data == "with":
+        await q.edit_message_text(
+"✍️ حدد مبلغ السحب أولاً (رقم صحيح)", reply_markup=back_btn())
+        context.user_data["awaiting_amount"] = True
+
+    elif q.data == "admin" and uid == ADMIN_ID:
+        await q.edit_message_text("⚙️ لوحة الإدارة المتقدمة", reply_markup=admin_menu())
 
 # ================== RUN ==================
 app = ApplicationBuilder().token(TOKEN).build()
