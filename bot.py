@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-import sqlite3, time, requests
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+import sqlite3, time, random, requests
 
 # ================= CONFIG =================
 TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
@@ -19,6 +19,7 @@ REF_BONUS = 250
 AD_BONUS = 400
 DAILY_BONUS = 300
 AD_REWARD = 120
+MAX_ADS_PER_DAY = 40
 VPN_API_URL = "https://vpncheck.example.com/api?ip="
 
 DB = "data.db"
@@ -67,7 +68,7 @@ def add_balance(uid, amount):
     conn.commit()
 
 def generate_link():
-    api = API_LIST[int(time.time()) % len(API_LIST)]
+    api = random.choice(API_LIST)
     try:
         r = requests.get(f"https://exe.io/api?api={api}&url=https://google.com")
         return r.json().get("shortenedUrl","https://google.com")
@@ -85,8 +86,8 @@ def check_vpn(ip):
 def menu(uid):
     kb = [
         [InlineKeyboardButton("💰 أرباحي", callback_data="bal")],
-        [InlineKeyboardButton("🎁 مشاهدة إعلان واربح 120🔥", callback_data="ads")],
-        [InlineKeyboardButton("👥 دعوة الأصدقاء = أرباح ⚡", callback_data="ref")],
+        [InlineKeyboardButton(f"🎁 مشاهدة إعلان واربح {AD_REWARD}🔥", callback_data="ads")],
+        [InlineKeyboardButton(f"👥 دعوة الأصدقاء = أرباح ⚡", callback_data="ref")],
         [InlineKeyboardButton("🏦 سحب أرباحك الآن 💸", callback_data="with")],
         [InlineKeyboardButton("✉️ تواصل معنا", url=f"https://t.me/hassanhasan12")]
     ]
@@ -144,7 +145,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif q.data == "ads":
         cur.execute("SELECT ads_count FROM users WHERE user_id=?", (uid,))
         count = cur.fetchone()[0]
-        if count >= 40:
+        if count >= MAX_ADS_PER_DAY:
             await q.answer("❌ وصلت الحد اليومي للإعلانات", show_alert=True)
             return
         if check_vpn(str(uid)):
