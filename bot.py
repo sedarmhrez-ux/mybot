@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-import sqlite3, os, time, requests
+import sqlite3, time, requests
 
 TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
 ADMIN_ID = 5492649402
@@ -24,7 +24,7 @@ DB = "data.db"
 conn = sqlite3.connect(DB, check_same_thread=False)
 cur = conn.cursor()
 
-# ================== DB TABLES ==================
+# ======== DATABASE TABLES ========
 cur.execute("""CREATE TABLE IF NOT EXISTS users(
 user_id INTEGER PRIMARY KEY,
 balance INTEGER,
@@ -57,7 +57,7 @@ time INTEGER
 )""")
 conn.commit()
 
-# ================== HELPERS ==================
+# ======== HELPERS ========
 def now(): return int(time.time())
 
 def add_user(uid, ref=None):
@@ -95,7 +95,7 @@ def check_vpn(ip):
     except:
         return False
 
-# ================== MENUS ==================
+# ======== MENUS ========
 def menu(uid):
     kb = [
         [InlineKeyboardButton("💰 أرباحي", callback_data="bal")],
@@ -108,8 +108,8 @@ def menu(uid):
         kb.append([InlineKeyboardButton("⚙️ لوحة الإدارة المتقدمة", callback_data="admin")])
     return InlineKeyboardMarkup(kb)
 
-def back_btn():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("↩️ السابق", callback_data="home")]])
+def back_btn(callback="home"):
+    return InlineKeyboardMarkup([[InlineKeyboardButton("↩️ السابق", callback_data=callback)]])
 
 def admin_menu():
     return InlineKeyboardMarkup([
@@ -119,12 +119,11 @@ def admin_menu():
         [InlineKeyboardButton("↩️ السابق", callback_data="home")]
     ])
 
-# ================== START ==================
+# ======== START ========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
     ref = int(context.args[0]) if context.args else None
     add_user(uid, ref)
-
     await update.message.reply_text(
 f"""🎉 أهلاً وسهلاً بالمشترك الجديد!
 💰 تم إضافة بونص مجاني بقيمة {WELCOME_BONUS} ل.س
@@ -137,23 +136,24 @@ f"""🎉 أهلاً وسهلاً بالمشترك الجديد!
 - دعوة صديق → بونص {REF_BONUS} ل.س
 - تسجيل يومي → بونص {DAILY_BONUS} ل.س
 
-⚠️ تذكير: يرجى عدم استخدام VPN أثناء مشاهدة الإعلانات لتجنب الحظر.
+⚠️ يرجى عدم استخدام VPN لتجنب الحظر.
 
 👇 اختر من القائمة للبدء
 """, reply_markup=menu(uid))
 
-# ================== BUTTONS ==================
+# ======== BUTTONS ========
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     uid = q.from_user.id
     await q.answer()
 
+    # الرئيسية
     if q.data == "home":
         await q.edit_message_text("🏠 القائمة الرئيسية", reply_markup=menu(uid))
+        return
 
     elif q.data == "bal":
-        bal = get_balance(uid)
-        await q.edit_message_text(f"💰 رصيدك: {bal}", reply_markup=back_btn())
+        await q.edit_message_text(f"💰 رصيدك: {get_balance(uid)}", reply_markup=back_btn())
 
     elif q.data == "ads":
         cur.execute("SELECT ads_count FROM users WHERE user_id=?", (uid,))
@@ -192,17 +192,19 @@ f"""🔥 كل إعلان يضيف {AD_REWARD} ل.س
         link = f"https://t.me/{BOT_USERNAME}?start={uid}"
         await q.edit_message_text(f"🔗 رابطك الشخصي:\n{link}", reply_markup=back_btn())
 
-    elif q.data == "with":
-        await q.edit_message_text(
-"✍️ حدد مبلغ السحب أولاً (رقم صحيح)", reply_markup=back_btn())
-        context.user_data["awaiting_amount"] = True
-
+    # لوحة الإدارة
     elif q.data == "admin" and uid == ADMIN_ID:
         await q.edit_message_text("⚙️ لوحة الإدارة المتقدمة", reply_markup=admin_menu())
 
-# ================== RUN ==================
-app = ApplicationBuilder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CallbackQueryHandler(buttons))
-print("BOT RUNNING...")
-app.run_polling()
+    elif q.data == "stats" and uid == ADMIN_ID:
+        cur.execute("SELECT COUNT(*) FROM users")
+        total_users = cur.fetchone()[0]
+        cur.execute("SELECT SUM(balance) FROM users")
+        total_balance = cur.fetchone()[0] or 0
+        cur.execute("SELECT COUNT(*) FROM users WHERE banned=1")
+        banned = cur.fetchone()[0]
+        await q.edit_message_text(
+f"""📊 إحصائيات البوت
+👤 المستخدمين: {total_users}
+💰 الأرباح الكلية: {total_balance}
+🚫 المحظورين: {banned}""", reply_markup=admin_menu())
