@@ -7,7 +7,9 @@ TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
 ADMIN_ID = 5492649402
 BOT_USERNAME = "hassan2003probot"
 
-# ✅ تم التعديل هنا (أكثر من موقع)
+# 🔥 Smartlink الخاص بك
+SMART_LINK = "https://www.profitablecpmratenetwork.com/u4iric19?key=8c595d0b7efd3561c15b20d650be1295"
+
 API_LIST = [
     ("https://exe.io/api", "4693acfd000d76e596cb23645e01b0956f533f0f"),
     ("https://fc.lc/api", "da29dbb527117f6da44b53b01d30042642f09339"),
@@ -81,14 +83,32 @@ def add_balance(uid, amount):
     cur.execute("UPDATE users SET balance=balance+? WHERE user_id=?", (amount, uid))
     conn.commit()
 
-# ✅ تم التعديل هنا
+# 🔥 توليد الرابط (Smartlink + API)
 def generate_link():
-    api_url, api_key = random.choice(API_LIST)
-    try:
-        r = requests.get(f"{api_url}?api={api_key}&url=https://google.com")
-        return r.json().get("shortenedUrl", "https://google.com")
-    except:
-        return "https://google.com"
+    random.shuffle(API_LIST)
+
+    for api_url, api_key in API_LIST:
+        try:
+            r = requests.get(
+                f"{api_url}?api={api_key}&url={SMART_LINK}",
+                timeout=5
+            )
+
+            data = r.json()
+
+            link = (
+                data.get("shortenedUrl")
+                or data.get("shortened_url")
+                or data.get("url")
+            )
+
+            if link and link.startswith("http"):
+                return link
+
+        except:
+            continue
+
+    return SMART_LINK  # fallback
 
 # ================= MENUS =================
 def menu(uid):
