@@ -3,7 +3,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 import sqlite3, time, requests, random
 
 # ================= CONFIG =================
-TOKEN = "PUT_YOUR_TOKEN_HERE"
+TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
 ADMIN_ID = 5492649402
 BOT_USERNAME = "hassan2003probot"
 
