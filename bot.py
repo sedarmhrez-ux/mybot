@@ -3,7 +3,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 import sqlite3, time, requests, random
 
 # ================= CONFIG =================
-TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
+TOKEN = "PUT_YOUR_TOKEN_HERE"
 ADMIN_ID = 5492649402
 BOT_USERNAME = "hassan2003probot"
 
@@ -166,16 +166,25 @@ f"""🔥 اربح {AD_REWARD}
         ])
     )
 
+    # ✅ التعديل هنا (زر التحقق)
     elif q.data == "check":
         if uid not in user_sessions:
             await q.answer("❌ لا يوجد إعلان", show_alert=True)
             return
 
-        if time.time() - user_sessions[uid]["time"] < 30:
-            await q.answer("⏳ انتظر 30 ثانية", show_alert=True)
+        session = user_sessions[uid]
+
+        if time.time() - session["time"] < 30:
+            await q.answer("⏳ يجب الانتظار 30 ثانية", show_alert=True)
             return
 
-        await q.message.reply_text("🔐 أرسل الرمز")
+        if session["verified"]:
+            await q.answer("❌ تم التحقق مسبقاً", show_alert=True)
+            return
+
+        await q.answer("📩 أرسل رمز التحقق الآن")
+
+        await q.message.reply_text("🔐 أرسل رمز التحقق:")
         context.user_data["await_code"] = True
 
     elif q.data == "daily":
@@ -216,6 +225,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         add_balance(uid, AD_REWARD)
+        user_sessions[uid]["verified"] = True
         context.user_data["await_code"] = False
 
         cur.execute("SELECT ads_count FROM users WHERE user_id=?", (uid,))
