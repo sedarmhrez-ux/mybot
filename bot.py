@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-import sqlite3, time, random, requests
+import sqlite3, time, requests, random
 
 # ================= CONFIG =================
 TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
@@ -15,8 +15,10 @@ API_LIST = [
 ]
 
 WELCOME_BONUS = 2400
-AD_REWARD = 120
+REF_BONUS = 250
 AD_BONUS = 400
+DAILY_BONUS = 300
+AD_REWARD = 120
 MAX_ADS_PER_DAY = 40
 
 DB = "data.db"
@@ -27,8 +29,12 @@ cur = conn.cursor()
 cur.execute("""CREATE TABLE IF NOT EXISTS users(
 user_id INTEGER PRIMARY KEY,
 balance INTEGER,
-ads_count INTEGER DEFAULT 0,
-last_ad INTEGER DEFAULT 0
+refs INTEGER DEFAULT 0,
+ref_by INTEGER,
+banned INTEGER DEFAULT 0,
+last_ad INTEGER DEFAULT 0,
+joined INTEGER,
+ads_count INTEGER DEFAULT 0
 )""")
 conn.commit()
 
@@ -45,11 +51,17 @@ def create_session(uid):
     return code
 
 # ================= HELPERS =================
-def add_user(uid):
+def now(): return int(time.time())
+
+def add_user(uid, ref=None):
     cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
     if not cur.fetchone():
-        cur.execute("INSERT INTO users(user_id,balance) VALUES(?,?)",(uid, WELCOME_BONUS))
+        cur.execute("INSERT INTO users(user_id,balance,refs,ref_by,banned,last_ad,joined) VALUES(?,?,?,?,?,?,?)",
+                    (uid, WELCOME_BONUS,0,ref,0,0,now()))
         conn.commit()
+        if ref and ref != uid:
+            cur.execute("UPDATE users SET balance=balance+?, refs=refs+1 WHERE user_id=?",(REF_BONUS, ref))
+            conn.commit()
 
 def get_balance(uid):
     cur.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
@@ -68,26 +80,33 @@ def generate_link():
         return "https://google.com"
 
 # ================= MENUS =================
-def menu():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("💰 رصيدي", callback_data="bal")],
-        [InlineKeyboardButton("🎁 مشاهدة إعلان", callback_data="ads")]
-    ])
+def menu(uid):
+    kb = [
+        [InlineKeyboardButton("💰 أرباحي", callback_data="bal")],
+        [InlineKeyboardButton("🎁 مشاهدة إعلان واربح 🔥", callback_data="ads")],
+        [InlineKeyboardButton("👥 دعوة الأصدقاء", callback_data="ref")],
+        [InlineKeyboardButton("🏦 سحب الأرباح", callback_data="with")],
+    ]
+    if uid == ADMIN_ID:
+        kb.append([InlineKeyboardButton("⚙️ لوحة الإدارة", callback_data="admin")])
+    return InlineKeyboardMarkup(kb)
+
+def back_btn():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("↩️ رجوع", callback_data="home")]])
 
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
-    add_user(uid)
+    ref = int(context.args[0]) if context.args else None
+    add_user(uid, ref)
 
     await update.message.reply_text(
 f"""🎉 أهلاً بك!
 
 💰 تم إضافة {WELCOME_BONUS} ل.س
 
-🚀 ابدأ الربح الآن
-
-⚠️ يمنع استخدام VPN
-""", reply_markup=menu())
+🚀 ابدأ الربح الآن""",
+    reply_markup=menu(uid))
 
 # ================= BUTTONS =================
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -95,9 +114,13 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = q.from_user.id
     await q.answer()
 
-    if q.data == "bal":
-        await q.edit_message_text(f"💰 رصيدك: {get_balance(uid)}", reply_markup=menu())
+    if q.data == "home":
+        await q.edit_message_text("🏠 الرئيسية", reply_markup=menu(uid))
 
+    elif q.data == "bal":
+        await q.edit_message_text(f"💰 رصيدك: {get_balance(uid)}", reply_markup=back_btn())
+
+    # ================= ADS LEVEL 6 =================
     elif q.data == "ads":
         cur.execute("SELECT ads_count FROM users WHERE user_id=?", (uid,))
         count = cur.fetchone()[0]
@@ -109,16 +132,16 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         link = generate_link()
         code = create_session(uid)
 
-        cur.execute("UPDATE users SET ads_count=ads_count+1,last_ad=? WHERE user_id=?",(time.time(), uid))
+        cur.execute("UPDATE users SET last_ad=?, ads_count=ads_count+1 WHERE user_id=?", (time.time(), uid))
         conn.commit()
 
         await q.edit_message_text(
-f"""🔥 اربح {AD_REWARD} ل.س
+f"""🔥 اربح {AD_REWARD}
 
 📢 افتح الرابط:
 {link}
 
-🔐 رمز التحقق:
+🔐 رمز:
 {code}
 
 ⏳ بعد 30 ثانية اضغط تحقق""",
@@ -143,9 +166,19 @@ f"""🔥 اربح {AD_REWARD} ل.س
             await q.answer("❌ تم التحقق مسبقاً", show_alert=True)
             return
 
-        await q.message.reply_text("🔐 أرسل رمز التحقق:")
+        await q.message.reply_text("🔐 أرسل الرمز")
 
         context.user_data["await_code"] = True
+
+    elif q.data == "ref":
+        link = f"https://t.me/{BOT_USERNAME}?start={uid}"
+        await q.edit_message_text(f"🔗 رابطك:\n{link}", reply_markup=back_btn())
+
+    elif q.data == "with":
+        await q.edit_message_text("💸 السحب قريباً", reply_markup=back_btn())
+
+    elif q.data == "admin" and uid == ADMIN_ID:
+        await q.edit_message_text("⚙️ لوحة الإدارة", reply_markup=back_btn())
 
 # ================= CAPTCHA =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -171,9 +204,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if count % 5 == 0:
             add_balance(uid, AD_BONUS)
-            await update.message.reply_text("🎁 حصلت على بونص!")
+            await update.message.reply_text("🎁 بونص!")
 
-        await update.message.reply_text("✅ تم إضافة الربح", reply_markup=menu())
+        await update.message.reply_text("✅ تم إضافة الربح", reply_markup=menu(uid))
 
 # ================= RUN =================
 app = ApplicationBuilder().token(TOKEN).build()
