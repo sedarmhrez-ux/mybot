@@ -1,5 +1,5 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 import sqlite3, time, random, requests
 
 # ================= CONFIG =================
@@ -15,12 +15,9 @@ API_LIST = [
 ]
 
 WELCOME_BONUS = 2400
-REF_BONUS = 250
-AD_BONUS = 400
-DAILY_BONUS = 300
 AD_REWARD = 120
+AD_BONUS = 400
 MAX_ADS_PER_DAY = 40
-VPN_API_URL = "https://vpncheck.example.com/api?ip="
 
 DB = "data.db"
 conn = sqlite3.connect(DB, check_same_thread=False)
@@ -30,41 +27,36 @@ cur = conn.cursor()
 cur.execute("""CREATE TABLE IF NOT EXISTS users(
 user_id INTEGER PRIMARY KEY,
 balance INTEGER,
-refs INTEGER DEFAULT 0,
-ref_by INTEGER,
-banned INTEGER DEFAULT 0,
-last_ad INTEGER DEFAULT 0,
-joined INTEGER,
 ads_count INTEGER DEFAULT 0,
-daily_bonus_claimed INTEGER DEFAULT 0,
-ref_bonus_claimed INTEGER DEFAULT 0
+last_ad INTEGER DEFAULT 0
 )""")
-cur.execute("""CREATE TABLE IF NOT EXISTS ads(id INTEGER PRIMARY KEY AUTOINCREMENT,link TEXT)""")
-cur.execute("""CREATE TABLE IF NOT EXISTS withdraw(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,amount INTEGER,method TEXT,info TEXT,time INTEGER)""")
-cur.execute("""CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER,amount INTEGER,time INTEGER)""")
 conn.commit()
 
-# ================= HELPERS =================
-def now(): return int(time.time())
+# ================= SESSION =================
+user_sessions = {}
 
-def add_user(uid, ref=None):
+def create_session(uid):
+    code = str(random.randint(1000, 9999))
+    user_sessions[uid] = {
+        "time": time.time(),
+        "verified": False,
+        "code": code
+    }
+    return code
+
+# ================= HELPERS =================
+def add_user(uid):
     cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
     if not cur.fetchone():
-        cur.execute("INSERT INTO users(user_id,balance,refs,ref_by,banned,last_ad,joined) VALUES(?,?,?,?,?,?,?)",
-                    (uid, WELCOME_BONUS,0,ref,0,0,now()))
+        cur.execute("INSERT INTO users(user_id,balance) VALUES(?,?)",(uid, WELCOME_BONUS))
         conn.commit()
-        if ref and ref != uid:
-            cur.execute("UPDATE users SET balance=balance+?, refs=refs+1, ref_bonus_claimed=1 WHERE user_id=?",(REF_BONUS, ref))
-            conn.commit()
 
 def get_balance(uid):
     cur.execute("SELECT balance FROM users WHERE user_id=?", (uid,))
-    row = cur.fetchone()
-    return row[0] if row else 0
+    return cur.fetchone()[0]
 
 def add_balance(uid, amount):
     cur.execute("UPDATE users SET balance=balance+? WHERE user_id=?", (amount, uid))
-    cur.execute("INSERT INTO logs(user_id,amount,time) VALUES(?,?,?)", (uid, amount, now()))
     conn.commit()
 
 def generate_link():
@@ -75,58 +67,27 @@ def generate_link():
     except:
         return "https://google.com"
 
-def check_vpn(ip):
-    try:
-        r = requests.get(VPN_API_URL+ip)
-        return r.json().get("vpn", False)
-    except:
-        return False
-
 # ================= MENUS =================
-def menu(uid):
-    kb = [
-        [InlineKeyboardButton("💰 أرباحي", callback_data="bal")],
-        [InlineKeyboardButton(f"🎁 مشاهدة إعلان واربح {AD_REWARD}🔥", callback_data="ads")],
-        [InlineKeyboardButton(f"👥 دعوة الأصدقاء = أرباح ⚡", callback_data="ref")],
-        [InlineKeyboardButton("🏦 سحب أرباحك الآن 💸", callback_data="with")],
-        [InlineKeyboardButton("✉️ تواصل معنا", url=f"https://t.me/hassanhasan12")]
-    ]
-    if uid == ADMIN_ID:
-        kb.append([InlineKeyboardButton("⚙️ لوحة الإدارة المتقدمة", callback_data="admin")])
-    return InlineKeyboardMarkup(kb)
-
-def back_btn(callback="home"):
-    return InlineKeyboardMarkup([[InlineKeyboardButton("↩️ السابق", callback_data=callback)]])
-
-def admin_menu():
+def menu():
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 إحصائيات", callback_data="stats")],
-        [InlineKeyboardButton("📢 إدارة الإعلانات", callback_data="ads_admin")],
-        [InlineKeyboardButton("🚫 المستخدمين المحظورين", callback_data="ban_menu")],
-        [InlineKeyboardButton("↩️ السابق", callback_data="home")]
+        [InlineKeyboardButton("💰 رصيدي", callback_data="bal")],
+        [InlineKeyboardButton("🎁 مشاهدة إعلان", callback_data="ads")]
     ])
 
 # ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
-    ref = int(context.args[0]) if context.args else None
-    add_user(uid, ref)
+    add_user(uid)
+
     await update.message.reply_text(
-f"""🎉 أهلاً وسهلاً بالمشترك الجديد!
-💰 تم إضافة بونص مجاني بقيمة {WELCOME_BONUS} ل.س
+f"""🎉 أهلاً بك!
 
-🚀 اربح بسهولة من الإعلانات واختصار الروابط!
-⚡ تابع، شارك، وكن من الأوائل في جني الأرباح!
+💰 تم إضافة {WELCOME_BONUS} ل.س
 
-🏆 مكافآت إضافية:
-- مشاهدة 5 إعلانات → بونص {AD_BONUS} ل.س
-- دعوة صديق → بونص {REF_BONUS} ل.س
-- تسجيل يومي → بونص {DAILY_BONUS} ل.س
+🚀 ابدأ الربح الآن
 
-⚠️ يرجى عدم استخدام VPN لتجنب الحظر.
-
-👇 اختر من القائمة للبدء
-""", reply_markup=menu(uid))
+⚠️ يمنع استخدام VPN
+""", reply_markup=menu())
 
 # ================= BUTTONS =================
 async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -134,70 +95,92 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = q.from_user.id
     await q.answer()
 
-    # الرئيسية
-    if q.data == "home":
-        await q.edit_message_text("🏠 القائمة الرئيسية", reply_markup=menu(uid))
-        return
-
-    elif q.data == "bal":
-        await q.edit_message_text(f"💰 رصيدك: {get_balance(uid)}", reply_markup=back_btn())
+    if q.data == "bal":
+        await q.edit_message_text(f"💰 رصيدك: {get_balance(uid)}", reply_markup=menu())
 
     elif q.data == "ads":
         cur.execute("SELECT ads_count FROM users WHERE user_id=?", (uid,))
         count = cur.fetchone()[0]
+
         if count >= MAX_ADS_PER_DAY:
-            await q.answer("❌ وصلت الحد اليومي للإعلانات", show_alert=True)
+            await q.answer("❌ وصلت الحد اليومي", show_alert=True)
             return
-        if check_vpn(str(uid)):
-            cur.execute("UPDATE users SET banned=1 WHERE user_id=?", (uid,))
-            conn.commit()
-            await q.edit_message_text("🚫 تم حظرك 15 دقيقة بسبب VPN")
-            return
+
         link = generate_link()
-        cur.execute("UPDATE users SET last_ad=?, ads_count=ads_count+1 WHERE user_id=?", (time.time(), uid))
+        code = create_session(uid)
+
+        cur.execute("UPDATE users SET ads_count=ads_count+1,last_ad=? WHERE user_id=?",(time.time(), uid))
         conn.commit()
+
         await q.edit_message_text(
-f"""🔥 كل إعلان يضيف {AD_REWARD} ل.س
+f"""🔥 اربح {AD_REWARD} ل.س
 
-⚠️ يمنع استخدام VPN
+📢 افتح الرابط:
+{link}
 
-افتح الرابط وانتظر 30 ثانية ثم تحقق
-{link}""",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("✅ تحقق الآن", callback_data="check")]]))
+🔐 رمز التحقق:
+{code}
+
+⏳ بعد 30 ثانية اضغط تحقق""",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ تحقق", callback_data="check")],
+            [InlineKeyboardButton("🔁 إعلان جديد", callback_data="ads")]
+        ])
+    )
 
     elif q.data == "check":
-        cur.execute("SELECT last_ad FROM users WHERE user_id=?", (uid,))
-        last = cur.fetchone()[0]
-        if time.time() - last < 30:
-            await q.answer("❌ يجب الانتظار 30 ثانية", show_alert=True)
+        if uid not in user_sessions:
+            await q.answer("❌ لا يوجد إعلان", show_alert=True)
             return
+
+        session = user_sessions[uid]
+
+        if time.time() - session["time"] < 30:
+            await q.answer("⏳ انتظر 30 ثانية", show_alert=True)
+            return
+
+        if session["verified"]:
+            await q.answer("❌ تم التحقق مسبقاً", show_alert=True)
+            return
+
+        await q.message.reply_text("🔐 أرسل رمز التحقق:")
+
+        context.user_data["await_code"] = True
+
+# ================= CAPTCHA =================
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.message.from_user.id
+
+    if context.user_data.get("await_code"):
+        code = update.message.text.strip()
+
+        if uid not in user_sessions:
+            await update.message.reply_text("❌ انتهت الجلسة")
+            return
+
+        if user_sessions[uid]["code"] != code:
+            await update.message.reply_text("❌ رمز خاطئ")
+            return
+
         add_balance(uid, AD_REWARD)
-        await q.edit_message_text(f"✅ تم إضافة {AD_REWARD} ل.س", reply_markup=back_btn())
+        user_sessions[uid]["verified"] = True
+        context.user_data["await_code"] = False
 
-    elif q.data == "ref":
-        link = f"https://t.me/{BOT_USERNAME}?start={uid}"
-        await q.edit_message_text(f"🔗 رابطك الشخصي:\n{link}", reply_markup=back_btn())
+        cur.execute("SELECT ads_count FROM users WHERE user_id=?", (uid,))
+        count = cur.fetchone()[0]
 
-    # لوحة الإدارة
-    elif q.data == "admin" and uid == ADMIN_ID:
-        await q.edit_message_text("⚙️ لوحة الإدارة المتقدمة", reply_markup=admin_menu())
+        if count % 5 == 0:
+            add_balance(uid, AD_BONUS)
+            await update.message.reply_text("🎁 حصلت على بونص!")
 
-    elif q.data == "stats" and uid == ADMIN_ID:
-        cur.execute("SELECT COUNT(*) FROM users")
-        total_users = cur.fetchone()[0]
-        cur.execute("SELECT SUM(balance) FROM users")
-        total_balance = cur.fetchone()[0] or 0
-        cur.execute("SELECT COUNT(*) FROM users WHERE banned=1")
-        banned = cur.fetchone()[0]
-        await q.edit_message_text(
-f"""📊 إحصائيات البوت
-👤 المستخدمين: {total_users}
-💰 الأرباح الكلية: {total_balance}
-🚫 المحظورين: {banned}""", reply_markup=admin_menu())
+        await update.message.reply_text("✅ تم إضافة الربح", reply_markup=menu())
 
 # ================= RUN =================
 app = ApplicationBuilder().token(TOKEN).build()
+
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(buttons))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
 print("BOT RUNNING...")
 app.run_polling()
