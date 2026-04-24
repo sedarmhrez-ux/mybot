@@ -3,16 +3,15 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 import sqlite3, time, requests, random
 
 # ================= CONFIG =================
-TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
+TOKEN = "PUT_YOUR_TOKEN_HERE"
 ADMIN_ID = 5492649402
 BOT_USERNAME = "hassan2003probot"
 
-# 🔥 Smartlink الخاص بك
 SMART_LINK = "https://www.profitablecpmratenetwork.com/u4iric19?key=8c595d0b7efd3561c15b20d650be1295"
 
+# فقط المواقع اللي ممكن تشتغل
 API_LIST = [
     ("https://exe.io/api", "4693acfd000d76e596cb23645e01b0956f533f0f"),
-    ("https://fc.lc/api", "da29dbb527117f6da44b53b01d30042642f09339"),
     ("https://clks.pro/api", "26b0905f8960ee10ce7b442717c1ce85e062113e"),
     ("https://droplink.co/api", "2f32cae87ec3d4f9306f37337a538969141c14ca")
 ]
@@ -52,6 +51,7 @@ conn.commit()
 
 # ================= SESSION =================
 user_sessions = {}
+last_api_index = 0
 
 def create_session(uid):
     code = str(random.randint(1000, 9999))
@@ -63,8 +63,6 @@ def create_session(uid):
     return code
 
 # ================= HELPERS =================
-def now(): return int(time.time())
-
 def add_user(uid, ref=None):
     cur.execute("SELECT * FROM users WHERE user_id=?", (uid,))
     if not cur.fetchone():
@@ -83,32 +81,30 @@ def add_balance(uid, amount):
     cur.execute("UPDATE users SET balance=balance+? WHERE user_id=?", (amount, uid))
     conn.commit()
 
-# 🔥 توليد الرابط (Smartlink + API)
+# 🔥 توليد الرابط (Rotation + Smartlink)
 def generate_link():
-    random.shuffle(API_LIST)
+    global last_api_index
 
-    for api_url, api_key in API_LIST:
+    for i in range(len(API_LIST)):
+        api_url, api_key = API_LIST[(last_api_index + i) % len(API_LIST)]
+
         try:
             r = requests.get(
                 f"{api_url}?api={api_key}&url={SMART_LINK}",
                 timeout=5
             )
-
             data = r.json()
 
-            link = (
-                data.get("shortenedUrl")
-                or data.get("shortened_url")
-                or data.get("url")
-            )
+            link = data.get("shortenedUrl") or data.get("shortened_url") or data.get("url")
 
             if link and link.startswith("http"):
+                last_api_index = (last_api_index + i + 1) % len(API_LIST)
                 return link
 
         except:
             continue
 
-    return SMART_LINK  # fallback
+    return SMART_LINK
 
 # ================= MENUS =================
 def menu(uid):
@@ -134,17 +130,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 f"""🎉 أهلاً وسهلاً بالمشترك الجديد!
 💰 تم إضافة بونص مجاني بقيمة {WELCOME_BONUS} ل.س
 
-🚀 اربح بسهولة من الإعلانات واختصار الروابط!
-⚡ تابع، شارك، وكن من الأوائل في جني الأرباح!
+🚀 اربح بسهولة من الإعلانات!
+🏆 مكافآت:
+- كل 5 إعلانات → {AD_BONUS}
+- دعوة صديق → {REF_BONUS}
+- يومي → {DAILY_BONUS}
 
-🏆 مكافآت إضافية:
-- مشاهدة 5 إعلانات → بونص {AD_BONUS} ل.س
-- دعوة صديق → بونص {REF_BONUS} ل.س
-- تسجيل يومي → بونص {DAILY_BONUS} ل.س
-
-⚠️ يرجى عدم استخدام VPN لتجنب الحظر.
-
-👇 اختر من القائمة للبدء
+👇 ابدأ الآن
 """, reply_markup=menu(uid))
 
 # ================= BUTTONS =================
@@ -154,7 +146,7 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
 
     if q.data == "home":
-        await q.edit_message_text("🏠 القائمة الرئيسية", reply_markup=menu(uid))
+        await q.edit_message_text("🏠 القائمة", reply_markup=menu(uid))
 
     elif q.data == "bal":
         await q.edit_message_text(f"💰 رصيدك: {get_balance(uid)}", reply_markup=back_btn())
@@ -164,25 +156,22 @@ async def buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         count = cur.fetchone()[0]
 
         if count >= MAX_ADS_PER_DAY:
-            await q.answer("❌ وصلت الحد اليومي", show_alert=True)
+            await q.answer("❌ الحد اليومي", show_alert=True)
             return
 
         link = generate_link()
         code = create_session(uid)
 
-        cur.execute("UPDATE users SET ads_count=ads_count+1,last_ad=? WHERE user_id=?",(time.time(), uid))
+        cur.execute("UPDATE users SET ads_count=ads_count+1 WHERE user_id=?", (uid,))
         conn.commit()
 
         await q.edit_message_text(
 f"""🔥 اربح {AD_REWARD}
 
-📢 افتح الرابط:
 {link}
 
-🔐 الرمز:
-{code}
-
-⏳ بعد 30 ثانية اضغط تحقق""",
+🔐 {code}
+⏳ انتظر 30 ثانية ثم تحقق""",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("✅ تحقق", callback_data="check")]
         ])
@@ -193,18 +182,11 @@ f"""🔥 اربح {AD_REWARD}
             await q.answer("❌ لا يوجد إعلان", show_alert=True)
             return
 
-        session = user_sessions[uid]
-
-        if time.time() - session["time"] < 30:
-            await q.answer("⏳ يجب الانتظار 30 ثانية", show_alert=True)
+        if time.time() - user_sessions[uid]["time"] < 30:
+            await q.answer("⏳ انتظر", show_alert=True)
             return
 
-        if session["verified"]:
-            await q.answer("❌ تم التحقق مسبقاً", show_alert=True)
-            return
-
-        await q.answer("📩 أرسل رمز التحقق الآن")
-        await q.message.reply_text("🔐 أرسل رمز التحقق:")
+        await q.answer("📩 أرسل الرمز")
         context.user_data["await_code"] = True
 
     elif q.data == "daily":
@@ -212,27 +194,14 @@ f"""🔥 اربح {AD_REWARD}
         last = cur.fetchone()[0]
 
         if time.time() - last < 86400:
-            await q.answer("❌ استلمت البونص اليومي", show_alert=True)
+            await q.answer("❌ استلمت اليوم", show_alert=True)
             return
 
         add_balance(uid, DAILY_BONUS)
         cur.execute("UPDATE users SET daily_bonus=? WHERE user_id=?", (time.time(), uid))
         conn.commit()
 
-        await q.edit_message_text(f"🎁 تم إضافة {DAILY_BONUS}", reply_markup=back_btn())
-
-    elif q.data == "ref":
-        link = f"https://t.me/{BOT_USERNAME}?start={uid}"
-        await q.edit_message_text(f"🔗 رابطك:\n{link}", reply_markup=back_btn())
-
-    elif q.data == "with":
-        bal = get_balance(uid)
-        if bal < MIN_WITHDRAW:
-            await q.edit_message_text("❌ رصيدك غير كافي للسحب", reply_markup=back_btn())
-            return
-
-        context.user_data["await_amount"] = True
-        await q.message.reply_text("💰 ارسل مبلغ السحب:")
+        await q.edit_message_text("🎁 تم استلام البونص", reply_markup=back_btn())
 
 # ================= TEXT =================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -241,42 +210,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if context.user_data.get("await_code"):
         if user_sessions[uid]["code"] != text:
-            await update.message.reply_text("❌ رمز خاطئ")
+            await update.message.reply_text("❌ خطأ")
             return
 
         add_balance(uid, AD_REWARD)
-        user_sessions[uid]["verified"] = True
         context.user_data["await_code"] = False
 
-        cur.execute("SELECT ads_count FROM users WHERE user_id=?", (uid,))
-        count = cur.fetchone()[0]
-
-        if count % 5 == 0:
-            add_balance(uid, AD_BONUS)
-            await update.message.reply_text("🎁 بونص!")
-
-        await update.message.reply_text("✅ تم إضافة الربح", reply_markup=menu(uid))
-
-    elif context.user_data.get("await_amount"):
-        amount = int(text)
-        if amount > get_balance(uid):
-            await update.message.reply_text("❌ لا يوجد رصيد كافي")
-            return
-
-        context.user_data["withdraw_amount"] = amount
-        context.user_data["await_amount"] = False
-
-        await update.message.reply_text(
-            "اختر طريقة السحب",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("USDT", callback_data="w_usdt")],
-                [InlineKeyboardButton("Payeer", callback_data="w_payeer")]
-            ])
-        )
+        await update.message.reply_text("✅ تم الربح", reply_markup=menu(uid))
 
 # ================= RUN =================
 app = ApplicationBuilder().token(TOKEN).build()
-
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CallbackQueryHandler(buttons))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
