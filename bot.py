@@ -12,7 +12,6 @@ API_LIST = [
     ("https://exe.io/api", "4693acfd000d76e596cb23645e01b0956f533f0f"),
     ("https://fc.lc/api", "da29dbb527117f6da44b53b01d30042642f09339"),
     ("https://clks.pro/api", "26b0905f8960ee10ce7b442717c1ce85e062113e"),
-    (https://shrinkearn.com/api?api= da29dbb527117f6da44b53b01d30042642f09339 &url= yourdestinationlink.com &alias= CustomAlias)
     ("https://droplink.co/api", "2f32cae87ec3d4f9306f37337a538969141c14ca")
 ]
 
