@@ -7,11 +7,12 @@ TOKEN = "8728108992:AAG81nj5sEHFZASRue-PdgnUZVrUzPo-wIA"
 ADMIN_ID = 5492649402
 BOT_USERNAME = "hassan2003probot"
 
+# ✅ تم التعديل هنا (أكثر من موقع)
 API_LIST = [
-    "4693acfd000d76e596cb23645e01b0956f533f0f",
-    "da29dbb527117f6da44b53b01d30042642f09339",
-    "26b0905f8960ee10ce7b442717c1ce85e062113e",
-    "2f32cae87ec3d4f9306f37337a538969141c14ca"
+    ("https://exe.io/api", "4693acfd000d76e596cb23645e01b0956f533f0f"),
+    ("https://fc.lc/api", "da29dbb527117f6da44b53b01d30042642f09339"),
+    ("https://clks.pro/api", "26b0905f8960ee10ce7b442717c1ce85e062113e"),
+    ("https://droplink.co/api", "2f32cae87ec3d4f9306f37337a538969141c14ca")
 ]
 
 WELCOME_BONUS = 2400
@@ -80,11 +81,12 @@ def add_balance(uid, amount):
     cur.execute("UPDATE users SET balance=balance+? WHERE user_id=?", (amount, uid))
     conn.commit()
 
+# ✅ تم التعديل هنا
 def generate_link():
-    api = random.choice(API_LIST)
+    api_url, api_key = random.choice(API_LIST)
     try:
-        r = requests.get(f"https://exe.io/api?api={api}&url=https://google.com")
-        return r.json().get("shortenedUrl","https://google.com")
+        r = requests.get(f"{api_url}?api={api_key}&url=https://google.com")
+        return r.json().get("shortenedUrl", "https://google.com")
     except:
         return "https://google.com"
 
@@ -166,7 +168,6 @@ f"""🔥 اربح {AD_REWARD}
         ])
     )
 
-    # ✅ التعديل هنا (زر التحقق)
     elif q.data == "check":
         if uid not in user_sessions:
             await q.answer("❌ لا يوجد إعلان", show_alert=True)
@@ -183,7 +184,6 @@ f"""🔥 اربح {AD_REWARD}
             return
 
         await q.answer("📩 أرسل رمز التحقق الآن")
-
         await q.message.reply_text("🔐 أرسل رمز التحقق:")
         context.user_data["await_code"] = True
 
